@@ -13,7 +13,7 @@ By using unshare(), new and interesting features of the Linux kernel can be expl
 * Reverting other features shared from clone()'''
 
 setup(
-        name        = 'Unshare',
+        name        = 'python-unshare',
         version     = '0.1',
         description = 'Python bindings for the Linux unshare() syscall',
         long_description = longdesc,
