@@ -1,4 +1,4 @@
-#!/bin/env python
+#!/usr/bin/env python
 # vim: set fileencoding=utf-8
 from distutils.core import setup, Extension
 
@@ -9,4 +9,5 @@ setup (name = 'Unshare',
        description = 'Python bindings for the Linux unshare() syscall',
        author = 'Martin Ferrari',
        author_email = 'martin.ferrari@gmail.com',
+       url = 'http://code.google.com/p/python-unshare/',
        ext_modules = [module1])
