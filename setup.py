@@ -6,7 +6,7 @@ module1 = Extension('unshare', sources = ['unshare.c'])
 
 setup (name = 'Unshare',
        version = '0.1',
-       description = 'Support for the Linux unshare() syscall',
+       description = 'Python bindings for the Linux unshare() syscall',
        author = 'Martin Ferrari',
        author_email = 'martin.ferrari@gmail.com',
        ext_modules = [module1])
