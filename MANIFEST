@@ -1,3 +1,5 @@
 setup.py
 unshare.c
 COPYING
+README.md
+setup.cfg
