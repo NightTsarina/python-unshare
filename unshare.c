@@ -33,6 +33,17 @@ static PyObject * _unshare(PyObject *self, PyObject *args) {
         return PyErr_SetFromErrno(PyExc_OSError);
     Py_RETURN_NONE;
 }
+
+static PyObject * _setns(PyObject *self, PyObject *args) {
+    int fd, nstype, ret;
+    if (!PyArg_ParseTuple(args, "ii", &fd, &nstype))
+        return NULL;
+    ret = setns(fd, nstype);
+    if(ret == -1)
+        return PyErr_SetFromErrno(PyExc_OSError);
+    Py_RETURN_NONE;
+}
+
 static PyMethodDef methods[] = {
     {"unshare", _unshare, METH_VARARGS,
         "unshare(flags)\n\n"
@@ -44,6 +55,21 @@ static PyMethodDef methods[] = {
         "  CLONE_SYSVSEM CLONE_NEWUTS CLONE_NEWIPC CLONE_NEWUSER "
         "CLONE_NEWPID\n"
         "  CLONE_NEWNET\n"
+    },
+    {"setns", _setns, METH_VARARGS,
+        "setns(fd, nstype)\n\n"
+        "Reassociate the calling thread with a new namespace.\n"
+        "fd is a filedescriptor referring to a namespace.\n"
+        "nstype specifies which type of namespace the calling thread\n"
+        "may be reassociated with.\n\n"
+        "Possible values for nstype:\n"
+        "  0             Allow any type of namespace to be joined.\n"
+        "  CLONE_NEWIPC  fd must refer to an IPC namespace.\n"
+        "  CLONE_NEWNET  fd must refer to a network namespace.\n"
+        "  CLONE_NEWNS   fd must refer to a mount namespace.\n"
+        "  CLONE_NEWPID  fd must refer to a descendant PID namespace.\n"
+        "  CLONE_NEWUSER fd must refer to a user namespace.\n"
+        "  CLONE_NEWUTS  fd must refer to a UTS namespace.\n"
     },
     {NULL, NULL, 0, NULL}
 };
