@@ -74,9 +74,31 @@ static PyMethodDef methods[] = {
     {NULL, NULL, 0, NULL}
 };
 
-PyMODINIT_FUNC initunshare(void) {
+#if PY_MAJOR_VERSION >= 3
+static struct PyModuleDef moduledef =
+{
+	PyModuleDef_HEAD_INIT,
+	"unshare", /* name of module */
+	"",          /* module documentation, may be NULL */
+	-1,          /* size of per-interpreter state of the module, or -1 if the module keeps state in global variables. */
+	methods
+};
+#endif
+
+#if PY_MAJOR_VERSION >= 3
+#define MOD_INIT(name) PyMODINIT_FUNC PyInit_##name(void)
+#else
+#define MOD_INIT(name) PyMODINIT_FUNC init##name(void)
+#endif
+
+MOD_INIT(unshare) {
     PyObject *m;
-    m = Py_InitModule("unshare", methods);
+
+    #if PY_MAJOR_VERSION >= 3
+    m = PyModule_Create(&moduledef);
+    #else
+    m = Py_InitModule3("unshare", methods, "");
+    #endif
     if (m == NULL)
         return;
 
@@ -101,5 +123,9 @@ PyMODINIT_FUNC initunshare(void) {
     PyModule_AddIntConstant(m, "CLONE_NEWPID", CLONE_NEWPID);
     /* CAP_SYS_ADMIN */
     PyModule_AddIntConstant(m, "CLONE_NEWNET", CLONE_NEWNET);
+
+    #if PY_MAJOR_VERSION >= 3
+    return m;
+    #endif
 }
 
