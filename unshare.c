@@ -22,7 +22,6 @@
 #ifndef _GNU_SOURCE
 # define _GNU_SOURCE
 #endif
-#define _GNU_SOURCE
 #include <sched.h>
 #include <sys/mount.h>
 #include <sys/types.h>
@@ -33,7 +32,7 @@
 #include <fcntl.h>
 
 struct mapping {
-    char **value;
+    char **path;
     char *kw_name;
     int mask;
     char *mask_name;
@@ -60,10 +59,6 @@ static struct mask_list_entry {
     { "CLONE_VM",        CLONE_VM },
     { NULL,              0 }
 };
-
-static int ns_bind_mount(pid_t bpid, struct mapping *mapping) {
-    return 0;
-}
 
 static PyObject * _unshare(PyObject *self, PyObject *args, PyObject *keywds)
 {
@@ -92,74 +87,37 @@ static PyObject * _unshare(PyObject *self, PyObject *args, PyObject *keywds)
     };
 
     if (!PyArg_ParseTupleAndKeywords(args, keywds, "|izzzzzzz", kwlist,
-                                     &v_flags, &v_cgroup, &v_ipc, &v_mount, &v_net, &v_pid, &v_user, &v_uts))
+                                     &v_flags, &v_cgroup, &v_ipc, &v_mount,
+                                     &v_net, &v_pid, &v_user, &v_uts)) {
         return NULL;
-
-    fprintf(stderr, "-- flags=%d cgroup=%s ipc=%s mount=%s net=%s pid=%s user=%s uts=%s\n",
-            v_flags, v_cgroup, v_ipc, v_mount, v_net, v_pid, v_user, v_uts);
-
-    /* Sanity check parameters and collect bind info */
-    struct mapping * m;
-    int needed_mounts = 0;
-    int flags = v_flags;
-    for ( m = mapping + 1 ; m->value ; m++) {;
-        if (*m->value != empty) {
-            flags |= m->mask;
-            if (*m->value) needed_mounts++;
-            if ((v_flags != 0) && ((v_flags & m->mask) == 0)) {
-                char msg[1024];
-                snprintf(msg, sizeof msg, "%s keyword given, but %s (%x) not in flags (%x)",
-                         m->kw_name, m->mask_name, m->mask, v_flags);
-                PyErr_SetString(PyExc_OSError, msg);
-                return NULL;
+    }
+    
+    int flags_child = 0;
+    int flags_parent = v_flags;
+    pid_t my_pid = getpid();
+    struct mapping *m;
+    for ( m = mapping + 1 ; m->path ; m++) {
+        if (*m->path != empty) {
+            if (*m->path != NULL) {
+                /* Bind mount needed, unshare in child */
+                char ns[PATH_MAX];
+                struct stat stat_buf;
+                snprintf(ns, sizeof(ns), m->format, my_pid);
+                ret = stat(ns, &stat_buf);
+                if (ret == -1) {
+                    PyErr_SetFromErrnoWithFilename(PyExc_OSError, ns);
+                    goto err_unbindable_namespace;
+                }
+                flags_child |= m->mask;
+                flags_parent &= ~m->mask;
+            } else {
+                /* Bind mount not needed, unshare in parent */
+                flags_parent |= m->mask;
             }
         }
     }
-
-    if (needed_mounts == 0) {
-        /* Simple case */
-        ret = unshare(flags);
-        if (ret == -1)
-            return PyErr_SetFromErrno(PyExc_OSError);
-    } else {
-        /* Check that only restorable namespaces are specified when needing bind mounts */
-        if (needed_mounts >= 0) {
-            int bind_flags = 0;
-            pid_t pid = getpid();
-            for ( m = mapping + 1 ; m->value ; m++) {
-                char ns[PATH_MAX];
-                struct stat stat_buf;
-                snprintf(ns, sizeof(ns), m->format, pid);
-                if (stat(ns, &stat_buf) == 0) {
-                    bind_flags |= m->mask;
-                }
-            }
-            int bad = flags & ~bind_flags;
-            if (bad != 0) {
-                int pos = 0;
-                char msg[PATH_MAX];
-                struct mask_list_entry *ml;
-
-                ret = snprintf(msg, sizeof(msg),  "Unrestorable namespace detected [ ");
-                if (ret < 0)
-                    return PyErr_SetFromErrno(PyExc_OSError);
-                pos = ret;
-                for (ml = mask_list ; ml->name ; ml++) {
-                    if (bad & ml->mask) {
-                        ret = snprintf(msg + pos, sizeof(msg) - pos,  " %s |", ml->name);
-                        if (ret < 0)
-                            return PyErr_SetFromErrno(PyExc_OSError);
-                        pos += ret;
-                    }
-                }
-                ret = snprintf(msg + pos - 1, sizeof(msg) - pos + 1,  "] when saving namespace");
-                if (ret < 0)
-                    return PyErr_SetFromErrno(PyExc_OSError);
-                PyErr_SetString(PyExc_OSError, msg);
-                return NULL;
-            }
-        }
-        fprintf(stderr, "XXX\n");
+        
+    if (flags_child) {
         int fd[2];
         ret = socketpair(AF_UNIX, SOCK_STREAM, 0, fd);
         if(ret == -1)
@@ -173,23 +131,25 @@ static PyObject * _unshare(PyObject *self, PyObject *args, PyObject *keywds)
             /* Child */
             close(fd[1]);
             unsigned char result = 0;
-            ret = unshare(flags);
+            ret = unshare(flags_child);
             if (ret != 0) {
                 result = errno < 255 ? errno : EINVAL;
             }
             if (write(fd[0], &result, 1) != 1) {
+                close(fd[0]);
                 exit(1);
             }
             ret = read(fd[0], &result, 1);
-            fprintf(stderr, "EXIT %d %d\n", result, ret);
             if (ret != 1 || result != 'Q') {
+                close(fd[0]);
                 exit(1);
             }
+            close(fd[0]);
             exit(0);
         } else {
             /* Parent */
             unsigned char result;
-
+            
             close(fd[0]);
             ret = read(fd[1], &result, 1);
             if (ret == -1) {
@@ -200,46 +160,62 @@ static PyObject * _unshare(PyObject *self, PyObject *args, PyObject *keywds)
                 errno = result;
                 return PyErr_SetFromErrno(PyExc_OSError);
             }
-            fprintf(stderr, "MOUNT %d\n", result);
-            for ( m = mapping + 1 ; m->value ; m++) {;
-                if (*m->value != NULL && *m->value != empty) {
-
+            for ( m = mapping + 1 ; m->path ; m++) {;
+                if (*m->path != NULL && *m->path != empty) {
+                    
                     char ns[PATH_MAX];
                     snprintf(ns, sizeof(ns), m->format, pid);
-                    fprintf(stderr, "BIND %s %s\n", ns, *m->value);
-                    ret = mount(ns, *m->value, NULL, MS_BIND, NULL);
+                    ret = mount(ns, *m->path, NULL, MS_BIND, NULL);
                     if (ret == -1) {
                         close(fd[1]);
-                        fprintf(stderr, "TODO cleanup succeded mounts");
-                        return PyErr_SetFromErrno(PyExc_OSError);
+                        PyErr_SetFromErrnoWithFilename(PyExc_OSError, *m->path);
+                        goto err_cleanup_mounts;
                     } else {
                         m->is_mounted = 1;
                     }
                 }
             }
-            fprintf(stderr, "NSENTER %d\n", result);
-            for ( m = mapping + 1 ; m->value ; m++) {
-                if (v_flags & m->mask) {
+            for ( m = mapping + 1 ; m->path ; m++) {
+                if (flags_child & m->mask) {
                     char ns[PATH_MAX];
                     int fd;
                     snprintf(ns, sizeof(ns), m->format, pid);
                     fd = open(ns, O_RDONLY);
                     ret = setns(fd, m->mask);
                     close(fd);
-                    if (ret == -1)
-                        return PyErr_SetFromErrno(PyExc_OSError);
+                    if (ret == -1) {
+                        PyErr_SetFromErrnoWithFilename(PyExc_OSError, ns);
+                        goto err_setns_failed;
+                    }
                 }
             }
-           
+            
             if (write(fd[1], "Q", 1) != 1) {
                 close(fd[1]);
                 return PyErr_SetFromErrno(PyExc_OSError);
             }
             close(fd[1]);
-            wait(pid);
+            waitpid(pid, NULL, 0);
         }
     }
+    ret = unshare(flags_parent);
+    if (ret == -1) {
+        /* If flags_child != 0 we are in serious trouble */
+        return PyErr_SetFromErrno(PyExc_OSError);
+    }
     Py_RETURN_NONE;
+
+err_setns_failed:
+err_cleanup_mounts:
+    for ( m = mapping + 1 ; m->path ; m++) {;
+        if (m->is_mounted) {
+            umount(*m->path);
+            m->is_mounted = 0;
+        }
+    }
+    
+err_unbindable_namespace:
+    return NULL;
 }
 
 static PyObject * _setns(PyObject *self, PyObject *args) {
@@ -263,6 +239,14 @@ static PyMethodDef methods[] = {
      "  CLONE_SYSVSEM CLONE_NEWUTS CLONE_NEWIPC CLONE_NEWUSER "
      "CLONE_NEWPID\n"
      "  CLONE_NEWNET\n"
+     "Possible values for kwargs are (PATH == None is equivalent to FLAG):\n"
+     "  cgroup=PATH    save new cgroup namespace to PATH (CLONE_NEWCGROUP)\n"
+     "  ipc=PATH       save new ipc namespace to PATH (CLONE_NEWIPC)\n"
+     "  mount=PATH     save new mount namespace to PATH (CLONE_NEWNS)\n"
+     "  net=PATH       save new net namespace to PATH (CLONE_NEWNET)\n"
+     "  pid=PATH       save new pid namespace to PATH (CLONE_NEWPID)\n"
+     "  user=PATH      save new user namespace to PATH (CLONE_NEWUSER)\n"
+     "  uts=PATH       save new uts namespa<ce to PATH (CLONE_NEWUTS)\n"
     },
     {"setns", _setns, METH_VARARGS,
      "setns(fd, nstype)\n\n"
