@@ -266,16 +266,48 @@ static PyMethodDef methods[] = {
     {NULL, NULL, 0, NULL}
 };
 
-PyMODINIT_FUNC initunshare(void) {
-    PyObject *m;
-    m = Py_InitModule("unshare", methods);
+#if PY_MAJOR_VERSION >= 3
+
+static struct PyModuleDef moduledef = {
+        PyModuleDef_HEAD_INIT,
+        "unshare",
+        NULL,
+        0,
+        methods,
+        NULL,
+        NULL,
+        NULL,
+        NULL
+};
+
+#define INITERROR return NULL
+
+PyMODINIT_FUNC
+PyInit_unshare(void)
+
+#else
+
+#define INITERROR return
+
+PyMODINIT_FUNC initunshare(void)
+#endif
+{
+
+#if PY_MAJOR_VERSION >= 3
+    PyObject *m = PyModule_Create(&moduledef);
+#else
+    PyObject *m = Py_InitModule("unshare", methods);
+#endif
     if (m == NULL)
-        return;
+        INITERROR;
 
     struct mask_list_entry *ml;
 
     for (ml = mask_list ; ml->name ; ml++) {
         PyModule_AddIntConstant(m, ml->name, ml->mask);
     }
+#if PY_MAJOR_VERSION >= 3
+    return m;
+#endif
 }
 
