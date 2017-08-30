@@ -40,6 +40,10 @@ struct mapping {
     int is_mounted;
 };
 
+#ifndef CLONE_NEWCGROUP
+# define CLONE_NEWCGROUP    0x02000000  /* New cgroup namespace.  */
+#endif
+
 static struct mask_list_entry {
     char *name;
     int mask;
