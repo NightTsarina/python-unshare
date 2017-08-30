@@ -185,6 +185,17 @@ static PyObject * _unshare(PyObject *self, PyObject *args, PyObject *keywds)
                     int fd;
                     snprintf(ns, sizeof(ns), m->format, pid);
                     fd = open(ns, O_RDONLY);
+                    if (fd < 0) {
+                        PyErr_SetFromErrnoWithFilename(PyExc_OSError, ns);
+                        goto err_open_ns_failed;
+                    }
+                    /* Temporarily unshare namespace before entering 
+                       child namespace (gdm's use of pam needs this) */
+                    ret = unshare(m->mask);
+                    if (ret == -1) {
+                        PyErr_SetFromErrnoWithFilename(PyExc_OSError, ns);
+                        goto err_unshare_ns_failed;
+                    }
                     ret = setns(fd, m->mask);
                     close(fd);
                     if (ret == -1) {
@@ -209,6 +220,8 @@ static PyObject * _unshare(PyObject *self, PyObject *args, PyObject *keywds)
     }
     Py_RETURN_NONE;
 
+err_open_ns_failed:
+err_unshare_ns_failed:
 err_setns_failed:
 err_cleanup_mounts:
     for ( m = mapping + 1 ; m->path ; m++) {;
