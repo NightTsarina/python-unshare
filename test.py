@@ -38,11 +38,8 @@ def test(v):
         else:
             kwpath[a[0]] = a[1];
     for k in kwpath:
-        while os.path.exists(kwpath[k]):
-            try:
-                unshare.unbind(kwpath[k], kw_ns[k])
-            except Exception, e:
-                break
+        if os.path.exists(kwpath[k]) and unshare.get_nstype(kwpath[k]) != None:
+            unshare.unbind(kwpath[k], kw_ns[k])
         open(kwpath[k], "w").close()
     r,w = os.pipe()
     r = os.fdopen(r)
@@ -50,14 +47,14 @@ def test(v):
     pid = os.fork()
     if pid != 0:
         w.close()
+        ns1 = pickle.load(r)
+        ns2 = dict([ (k, os.stat("/proc/self/ns/%s" % (k)).st_ino)
+                     for k in os.listdir("/proc/self/ns") ])
         pid, status = os.waitpid(pid, 0)
         if status != 0:
             print "%x %s failed" % (flags, kwpath)
             raise(Exception)
         else:
-            ns1 = pickle.load(r)
-            ns2 = dict([ (k, os.stat("/proc/self/ns/%s" % (k)).st_ino)
-                         for k in os.listdir("/proc/self/ns") ])
             for k in ns1:
                 if k == 'pid':
                     continue
@@ -114,12 +111,13 @@ if __name__ == '__main__':
         N = int(sys.argv[2])
     else:
         N = len(args)
+    unshare.unshare(unshare.CLONE_NEWNS) # Isolate test from systemd
     for n in range(1, N + 1):
         combinations = list(itertools.combinations(args, n))
-        print "N=%d (%d combinations)" % (n, len(combinations))
+        print "n=%d/N=%d (%d combinations)" % (n, N, len(combinations))
         for v in combinations:
             try:
                 test(v)
             except:
-                print "test(%s) failed" % (v)
+                print "test(%s) failed" % (str(v))
                 raise
