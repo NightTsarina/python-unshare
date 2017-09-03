@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python -u
 
 import unshare
 import time
@@ -101,7 +101,6 @@ def test(v):
             os._exit(0)
         except Exception, e:
             print>>sys.stderr, e
-            raise
             os._exit(1)
         
 if __name__ == '__main__':

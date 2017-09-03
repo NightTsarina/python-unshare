@@ -147,7 +147,7 @@ static PyObject * _unshare(PyObject *self, PyObject *args, PyObject *keywds)
                 /* Force pid_for_children to appear */
                 pid_t pid = fork();
                 if (pid == 0) {
-                    exit(0);
+                    _exit(0);
                 }
                 waitpid(pid, NULL, 0);
             }
@@ -162,10 +162,10 @@ static PyObject * _unshare(PyObject *self, PyObject *args, PyObject *keywds)
                 goto exit_1;
             }
             close(fd[0]);
-            exit(0);
+            _exit(0);
         exit_1:
             close(fd[0]);
-            exit(1);
+            _exit(1);
         } else {
             /* Parent */
             unsigned char result;
@@ -243,7 +243,7 @@ static PyObject * _unshare(PyObject *self, PyObject *args, PyObject *keywds)
         /* Force pid_for_children to appear */
         pid_t pid = fork();
         if (pid == 0) {
-            exit(0);
+            _exit(0);
         }
         waitpid(pid, NULL, 0);
     }
@@ -338,18 +338,18 @@ static int get_nstype_or_zero_or_errno(char *path) {
                 if (ret == 0) {
                     ret = write(fd[1], &ml->mask, sizeof(ml->mask));
                     if (ret != sizeof(ml->mask)) {
-                        exit(1);
+                        _exit(1);
                     }
-                    exit(0);
+                    _exit(0);
                 }
             }
         }
         int zero = 0;
         int ret = write(fd[1], &zero, sizeof(zero));
         if (ret != sizeof(zero)) {
-            exit(1);
+            _exit(1);
         }
-        exit(0);
+        _exit(0);
     } else {
         /* Parent */
         close(fd[1]);
