@@ -30,6 +30,7 @@
 #include <sys/wait.h>
 #include <sys/socket.h>
 #include <fcntl.h>
+#include <linux/nsfs.h>
 
 struct mapping {
     char **path;
@@ -49,21 +50,22 @@ struct mapping {
 static struct mask_list_entry {
     char *name;
     int mask;
+    int bindable;
 } mask_list[] = {
-    { "CLONE_FILES",     CLONE_FILES },
-    { "CLONE_FS",        CLONE_FS },
-    { "CLONE_NEWCGROUP", CLONE_NEWCGROUP },
-    { "CLONE_NEWIPC",    CLONE_NEWIPC },
-    { "CLONE_NEWNET",    CLONE_NEWNET },
-    { "CLONE_NEWNS",     CLONE_NEWNS },
-    { "CLONE_NEWPID",    CLONE_NEWPID },
-    { "CLONE_NEWUSER",   CLONE_NEWUSER },
-    { "CLONE_NEWUTS",    CLONE_NEWUTS },
-    { "CLONE_SIGHAND",   CLONE_SIGHAND },
-    { "CLONE_SYSVSEM",   CLONE_SYSVSEM },
-    { "CLONE_THREAD",    CLONE_THREAD },
-    { "CLONE_VM",        CLONE_VM },
-    { NULL,              0 }
+    { "CLONE_FILES",     CLONE_FILES, 0 },
+    { "CLONE_FS",        CLONE_FS, 0 },
+    { "CLONE_NEWCGROUP", CLONE_NEWCGROUP, 1 },
+    { "CLONE_NEWIPC",    CLONE_NEWIPC, 1 },
+    { "CLONE_NEWNET",    CLONE_NEWNET, 1 },
+    { "CLONE_NEWNS",     CLONE_NEWNS, 1 },
+    { "CLONE_NEWPID",    CLONE_NEWPID, 1 },
+    { "CLONE_NEWUSER",   CLONE_NEWUSER, 1 },
+    { "CLONE_NEWUTS",    CLONE_NEWUTS, 1 },
+    { "CLONE_SIGHAND",   CLONE_SIGHAND, 0 },
+    { "CLONE_SYSVSEM",   CLONE_SYSVSEM, 0 },
+    { "CLONE_THREAD",    CLONE_THREAD, 0 },
+    { "CLONE_VM",        CLONE_VM, 0 },
+    { NULL,              0, 0 }
 };
 
 static PyObject * _unshare(PyObject *self, PyObject *args, PyObject *keywds)
@@ -293,46 +295,129 @@ out:
     }
 }
 
-static PyObject * _unbind(PyObject *self, PyObject *args) {
-    char *path;
-    int nstype, ret;
-    if (!PyArg_ParseTuple(args, "si", &path, &nstype))
-        return NULL;
+static int get_nstype_or_zero_or_errno(char *path) {
+    int result = 0;
+    int saved_errno = 0;
+    int fd[2] = { -1, -1 };
+    int path_fd = open(path, O_RDONLY);
+    if (path_fd == -1) {
+        goto out_errno;
+    }
+    int path_nstype = 0;
+#ifdef NS_GET_NSTYPE
+    /* Compiled on system that knows about ioctl_ns */
+    path_nstype = ioctl(path_fd, NS_GET_NSTYPE);
+    if (path_nstype != -1) {
+        result = path_nstype;
+        goto out_close;
+    } else if (path_nstype == -1 && errno == ENOTTY) {
+        /* Not a namespace path */
+        goto out_close;
+    } else if (path_nstype == -1 && errno != EINVAL) {
+        /* Unexpected, propagate errno */
+        goto out_errno;
+    }
+    /* Running on Linux older than 4.11 */
+#else
+    /* Compiled on Linux older than 4.11 */
+#endif
+    /* Expensive pre Linux 4.11 path */
+    if (pipe(fd) == -1) {
+        goto out_errno;
+    }
     pid_t pid = fork();
     if (pid < 0) {
-        PyErr_SetFromErrno(PyExc_OSError);
-        return NULL;;
+        goto out_errno;
     } else if (pid == 0) {
-        /* Child */
-        int fd;
-        fd = open(path, O_RDONLY);
-        if (fd == -1) {
+        /* Child, test all possible known namespace kinds */
+        close(fd[0]);
+        struct mask_list_entry *ml;
+        for (ml = mask_list ; ml->name ; ml++) {
+            if (ml-> bindable) {
+                int ret = setns(path_fd, ml->mask);
+                if (ret == 0) {
+                    ret = write(fd[1], &ml->mask, sizeof(ml->mask));
+                    if (ret != sizeof(ml->mask)) {
+                        exit(1);
+                    }
+                    exit(0);
+                }
+            }
+        }
+        int zero = 0;
+        int ret = write(fd[1], &zero, sizeof(zero));
+        if (ret != sizeof(zero)) {
             exit(1);
         }
-        ret = setns(fd, nstype);
-        if (ret == -1) {
-            close(fd);
-            exit(1);
-        }
-        close(fd);
         exit(0);
     } else {
         /* Parent */
-        int status, res;
-        res = waitpid(pid, &status, 0);
-        if (res == -1) {
-            PyErr_SetFromErrno(PyExc_OSError);
-            return NULL;
+        close(fd[1]);
+        int ret = read(fd[0], &result, sizeof(result));
+        if (ret == -1) {
+            goto out_errno;
+        } else if (ret != sizeof(result)) {
+            errno = EIO;
+            goto out_errno;
         }
-        if (status != 0) {
-            PyErr_Format(PyExc_OSError, "%s does not refer to namspace of kind %x", path, nstype);
-            return NULL;
+        int status;
+        ret = waitpid(pid, &status, 0);
+        if (ret == -1) {
+            goto out_errno;
+        } else if (status != 0) {
+            errno = EIO;
+            goto out_errno;
         }
-        res = umount(path);
-        if (res == -1) {
-            PyErr_SetFromErrnoWithFilename(PyExc_OSError, path);
-            return NULL;
-        }
+        goto out;
+    }
+
+out_errno:
+    result = -1;
+    saved_errno = errno;
+out_close:
+    if (path_fd != -1) { close(path_fd); }
+    if (fd[0] != -1) { close(fd[0]); }
+    if (fd[1] != -1) { close(fd[1]); }
+out:
+    if (saved_errno != 0) { errno = saved_errno; }
+    return result;
+}
+
+static PyObject * _get_nstype(PyObject *self, PyObject *args) {
+    char *path;
+    if (!PyArg_ParseTuple(args, "s", &path))
+        return NULL;
+
+    int path_nstype = get_nstype_or_zero_or_errno(path);
+    if (path_nstype == -1) {
+        PyErr_SetFromErrnoWithFilename(PyExc_OSError, path);
+        return NULL;        
+    } else if (path_nstype == 0) {
+        Py_RETURN_NONE;
+    } else {
+        return Py_BuildValue("i", path_nstype);
+    }
+}
+
+static PyObject * _unbind(PyObject *self, PyObject *args) {
+    char *path;
+    int nstype, res;
+    if (!PyArg_ParseTuple(args, "si", &path, &nstype))
+        return NULL;
+
+    int path_nstype = get_nstype_or_zero_or_errno(path);
+    if (path_nstype == -1) {
+        PyErr_SetFromErrnoWithFilename(PyExc_OSError, path);
+        return NULL;
+    } else if (path_nstype == 0 || nstype != path_nstype) {
+        PyErr_Format(PyExc_OSError, "%s does not refer to namspace of kind %x",
+                     path, nstype);
+        return NULL;
+    } 
+    res = umount2(path, MNT_DETACH);
+    if (res == -1) {
+        PyErr_SetFromErrnoWithFilename(PyExc_OSError, path);
+        return NULL;
     }
     Py_RETURN_NONE;
 }
@@ -366,6 +451,11 @@ static PyMethodDef methods[] = {
      "  pid=PATH       save new pid namespace to PATH (CLONE_NEWPID)\n"
      "  user=PATH      save new user namespace to PATH (CLONE_NEWUSER)\n"
      "  uts=PATH       save new uts namespa<ce to PATH (CLONE_NEWUTS)\n"
+    },
+    {"get_nstype", _get_nstype, METH_VARARGS,
+     "get_nstype(path) -> nstype\n\n"
+     "Return the nstype for path\n\n"
+     "None is returned if path does not refer to a namespace\n"
     },
     {"unbind", _unbind, METH_VARARGS,
      "unbind(path, nstype)\n\n"
