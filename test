@@ -1,0 +1,20 @@
+#!/bin/sh
+
+set -x
+
+NS_ROOT=${1?:Root not specified}
+N=$2
+
+python setup.py build || exit 1
+if [ ! -d ${NS_ROOT} ] ; then
+    sudo mkdir ${NS_ROOT}
+fi
+if [ "$(findmnt -n -o PROPAGATION ${NS_ROOT})" == "" ] ; then
+    sudo mount --bind ${NS_ROOT} ${NS_ROOT} 
+fi
+if [ "$(findmnt -n -o PROPAGATION ${NS_ROOT})" == "shared" ] ; then
+    sudo mount --make-private ${NS_ROOT} 
+fi
+
+sudo PYTHONPATH=build/lib.linux-x86_64-2.7/ ./test.py ${NS_ROOT} ${N}
+ls -li ${NS_ROOT}
