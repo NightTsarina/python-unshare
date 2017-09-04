@@ -96,11 +96,13 @@ MOD_INIT(unshare) {
 
     #if PY_MAJOR_VERSION >= 3
     m = PyModule_Create(&moduledef);
+    if (m == NULL)
+        return NULL;
     #else
     m = Py_InitModule3("unshare", methods, "");
-    #endif
     if (m == NULL)
         return;
+    #endif
 
     /* Currently (2.6.33) not-implemented: CLONE_VM, CLONE_SIGHAND,
      * CLONE_THREAD, CLONE_NEWUSER, CLONE_NEWPID */
