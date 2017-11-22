@@ -56,6 +56,7 @@ static PyMethodDef methods[] = {
         "CLONE_NEWPID\n"
         "  CLONE_NEWNET\n"
     },
+#if __GLIBC_MINOR__ >= 14
     {"setns", _setns, METH_VARARGS,
         "setns(fd, nstype)\n\n"
         "Reassociate the calling thread with a new namespace.\n"
@@ -71,6 +72,7 @@ static PyMethodDef methods[] = {
         "  CLONE_NEWUSER fd must refer to a user namespace.\n"
         "  CLONE_NEWUTS  fd must refer to a UTS namespace.\n"
     },
+#endif
     {NULL, NULL, 0, NULL}
 };
 
