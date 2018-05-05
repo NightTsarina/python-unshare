@@ -6,4 +6,4 @@ By using `unshare()`, new and interesting features of the Linux kernel can be ex
  * Creating a new file system mount name space (`CLONE_NEWNS`)
  * Reverting other features shared from `clone()`
 
-This library provides an equivalent of the (recently added) util-linux command-line program `unshare`.
+This library provides an equivalent of the util-linux command-line program `unshare`.
