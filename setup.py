@@ -19,7 +19,7 @@ setup(
         long_description = longdesc,
         author      = 'Martin Ferrari',
         author_email = 'martin.ferrari@gmail.com',
-        url         = 'http://code.google.com/p/python-unshare/',
+        url         = 'https://github.com/TheTincho/python-unshare',
         license     = 'GPLv2',
         platforms   = 'Linux',
         ext_modules = [module1])
