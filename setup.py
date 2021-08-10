@@ -17,9 +17,9 @@ setup(
         version     = '0.2',
         description = 'Python bindings for the Linux unshare() syscall',
         long_description = longdesc,
-        author      = 'Martin Ferrari',
-        author_email = 'martin.ferrari@gmail.com',
-        url         = 'https://github.com/TheTincho/python-unshare',
+        author      = 'Martina Ferrari',
+        author_email = 'tina@tina.pm',
+        url         = 'https://github.com/NightTsarina/python-unshare',
         license     = 'GPLv2',
         platforms   = 'Linux',
         ext_modules = [module1])
