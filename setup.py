@@ -3,7 +3,7 @@
 # vim: ts=4:sw=4:et:ai:sts=4
 from distutils.core import setup, Extension
 
-module1 = Extension('unshare', sources = ['unshare.c'])
+module1 = Extension('unshare', sources = ['unshare.c'], py_limited_api=True)
 longdesc = '''This simple extension provides bindings to the Linux unshare() syscall, added in kernel version 2.6.16
 
 By using unshare(), new and interesting features of the Linux kernel can be exploited, such as:
