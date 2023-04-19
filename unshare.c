@@ -18,6 +18,7 @@
  * Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
+#define Py_LIMITED_API 0x030b0000f0
 #include <Python.h>
 #ifndef _GNU_SOURCE
 # define _GNU_SOURCE
